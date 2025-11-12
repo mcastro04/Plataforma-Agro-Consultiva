@@ -196,11 +196,11 @@ export default function HomePage() {
         <CardHeader>
           <CardTitle>Como Usar a Plataforma</CardTitle>
           <CardDescription>
-            Guia rápido das principais funcionalidades
+            Guia rápido das principais funcionalidades - Clique nos cards para acessar
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
             <div className="text-center space-y-3">
               <div className="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
                 <User className="h-6 w-6 text-blue-600" />
@@ -209,6 +209,14 @@ export default function HomePage() {
               <p className="text-sm text-muted-foreground">
                 Adicione produtores rurais e suas informações de contato
               </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => router.push('/clients')}
+                className="w-full"
+              >
+                Ir para Clientes
+              </Button>
             </div>
             <div className="text-center space-y-3">
               <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -216,8 +224,16 @@ export default function HomePage() {
               </div>
               <h3 className="font-semibold">2. Mapeie Propriedades</h3>
               <p className="text-sm text-muted-foreground">
-                Registre fazendas, talhões e culturas de cada cliente
+                Clique em um cliente → Tab "Propriedades" → Nova Propriedade → Ver Detalhes → Novo Talhão
               </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => router.push('/clients')}
+                className="w-full"
+              >
+                Começar Aqui
+              </Button>
             </div>
             <div className="text-center space-y-3">
               <div className="mx-auto w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center">
@@ -227,15 +243,48 @@ export default function HomePage() {
               <p className="text-sm text-muted-foreground">
                 Organize sua agenda e documente avaliações técnicas
               </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => router.push('/agenda')}
+                className="w-full"
+              >
+                Ir para Agenda
+              </Button>
             </div>
             <div className="text-center space-y-3">
               <div className="mx-auto w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
                 <ShoppingBag className="h-6 w-6 text-orange-600" />
               </div>
-              <h3 className="font-semibold">4. Venda e Gere Relatórios</h3>
+              <h3 className="font-semibold">4. Crie Pedidos</h3>
               <p className="text-sm text-muted-foreground">
-                Crie pedidos e gere relatórios técnicos profissionais
+                Na visita → Tab "Negócios/Pedidos" → Criar Pedido
               </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => router.push('/agenda')}
+                className="w-full"
+              >
+                Ver Visitas
+              </Button>
+            </div>
+            <div className="text-center space-y-3">
+              <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                <FileText className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="font-semibold">5. Gere PDF</h3>
+              <p className="text-sm text-muted-foreground">
+                Na visita → Tab "Pauta" → Botão "Gerar Relatório PDF"
+              </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => router.push('/agenda')}
+                className="w-full"
+              >
+                Ver Visitas
+              </Button>
             </div>
           </div>
         </CardContent>
