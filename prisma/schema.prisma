@@ -1,0 +1,177 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Clients - Produtores rurais
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  cpf_cnpj  String?  @unique
+  phone     String?
+  email     String?
+  created_by String? // Para rastreabilidade - será um campo de texto por enquanto
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relacionamentos
+  properties  Property[]
+  visits      Visit[]
+  salesOrders SalesOrder[]
+
+  @@map("clients")
+}
+
+// Properties - Fazendas dos clientes
+model Property {
+  id        String   @id @default(cuid())
+  client_id String
+  name      String
+  city      String?
+  created_by String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relacionamentos
+  client Client   @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  plots  Plot[]
+  visits Visit[]
+
+  @@map("properties")
+}
+
+// Plots - Talhões das propriedades
+model Plot {
+  id           String   @id @default(cuid())
+  property_id  String
+  name         String
+  crop         String?
+  area_hectares Float?
+  created_by   String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  // Relacionamentos
+  property         Property         @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  plotEvaluations PlotEvaluation[]
+
+  @@map("plots")
+}
+
+// Products - Catálogo de produtos
+model Product {
+  id                String   @id @default(cuid())
+  name              String
+  type              String   // 'INSETICIDA', 'FUNGICIDA', 'HERBICIDA', 'FERTILIZANTE', 'SEMENTE'
+  active_ingredient String?
+  created_by        String?
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  // Relacionamentos
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+// Visits - Visitas técnicas agendadas
+model Visit {
+  id                 String    @id @default(cuid())
+  client_id          String
+  property_id        String
+  scheduled_date     DateTime
+  status             String    @default("AGENDADA") // 'AGENDADA', 'REALIZADA', 'CANCELADA'
+  objective          String?
+  discussion_summary String?
+  created_by         String?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  // Relacionamentos
+  client           Client           @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  property         Property         @relation(fields: [property_id], references: [id], onDelete: Cascade)
+  plotEvaluations  PlotEvaluation[]
+  salesOrders      SalesOrder[]
+
+  @@map("visits")
+}
+
+// PlotEvaluations - Avaliações de talhão durante visitas
+model PlotEvaluation {
+  id                    String   @id @default(cuid())
+  visit_id              String
+  plot_id               String
+  phenological_stage    String?
+  pest_or_disease       String?
+  infestation_level     String?
+  weeds                 String?
+  technical_recommendation String?
+  created_by            String?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  // Relacionamentos
+  visit  Visit   @relation(fields: [visit_id], references: [id], onDelete: Cascade)
+  plot   Plot    @relation(fields: [plot_id], references: [id], onDelete: Cascade)
+  media  Media[]
+
+  @@map("plot_evaluations")
+}
+
+// Media - Arquivos de mídia (fotos, áudios) das avaliações
+model Media {
+  id         String   @id @default(cuid())
+  evaluation_id String
+  file_path  String   // URL/Path para o arquivo
+  media_type String   // 'FOTO', 'AUDIO'
+  created_by String?
+  created_at DateTime @default(now())
+
+  // Relacionamentos
+  evaluation PlotEvaluation @relation(fields: [evaluation_id], references: [id], onDelete: Cascade)
+
+  @@map("media")
+}
+
+// SalesOrders - Pedidos de venda
+model SalesOrder {
+  id         String   @id @default(cuid())
+  client_id  String
+  visit_id   String?
+  status     String   @default("COTAÇÃO") // 'COTAÇÃO', 'APROVADO', 'PEDIDO FECHADO', 'FATURADO', 'ENTREGUE', 'CANCELADO'
+  created_by String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  // Relacionamentos
+  client     Client      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  visit      Visit?      @relation(fields: [visit_id], references: [id], onDelete: SetNull)
+  orderItems OrderItem[]
+
+  @@map("sales_orders")
+}
+
+// OrderItems - Itens dos pedidos (tabela pivot)
+model OrderItem {
+  id         String  @id @default(cuid())
+  order_id   String
+  product_id String
+  quantity   Float
+  unit_price Float
+
+  // Relacionamentos
+  order   SalesOrder @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product Product    @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
