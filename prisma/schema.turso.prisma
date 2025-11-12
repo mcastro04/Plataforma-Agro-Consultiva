@@ -1,0 +1,17 @@
+// Schema alternativo para usar com Turso (SQLite Serverless)
+// Para usar: renomeie este arquivo para schema.prisma
+// OU mantenha schema.prisma como está e use PostgreSQL (Neon/Supabase)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+  relationMode = "prisma"  // Necessário para Turso
+}
+
+// O resto do schema permanece igual...
+// (copie o conteúdo do schema.prisma atual)
+
