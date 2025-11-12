@@ -44,9 +44,16 @@ export async function POST(request: NextRequest) {
       return jsonError('Validation failed', 400, parsed.error.flatten());
     }
 
+    const cleaned = {
+      name: parsed.data.name.trim(),
+      cpf_cnpj: parsed.data.cpf_cnpj?.trim(),
+      phone: parsed.data.phone?.trim(),
+      email: parsed.data.email?.trim(),
+    };
+
     const client = await db.client.create({
       data: {
-        ...parsed.data,
+        ...cleaned,
         created_by: 'marconi',
       },
     });
@@ -55,8 +62,8 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error('Error creating client:', error);
     if (error.code === 'P2002') {
-      return jsonError('CPF/CNPJ already exists', 409);
+      return jsonError('CPF/CNPJ already exists', 409, { code: error.code, message: error.message });
     }
-    return jsonError('Failed to create client', 500);
+    return jsonError('Failed to create client', 500, { code: error?.code, message: error?.message });
   }
 }
