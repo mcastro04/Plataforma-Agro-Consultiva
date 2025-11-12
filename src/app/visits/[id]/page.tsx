@@ -118,9 +118,6 @@ export default function VisitExecutionPage() {
     weeds: '',
     technical_recommendation: ''
   });
-  const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
-  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([]);
-  const [products, setProducts] = useState<Array<{ id: string; name: string; type: string }>>([]);
   const [orderFormData, setOrderFormData] = useState({
     client_id: '',
     status: 'COTAÇÃO',
@@ -295,6 +292,35 @@ export default function VisitExecutionPage() {
     setIsEvaluationDialogOpen(true);
   };
 
+  const handleDeleteEvaluation = async (id: string) => {
+    try {
+      const response = await fetch(`/api/evaluations/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        toast({
+          title: 'Sucesso',
+          description: 'Avaliação excluída com sucesso',
+        });
+        fetchVisit();
+      } else {
+        const error = await response.json();
+        toast({
+          title: 'Erro',
+          description: error.error || 'Falha ao excluir avaliação',
+          variant: 'destructive'
+        });
+      }
+    } catch (error) {
+      toast({
+        title: 'Erro',
+        description: 'Falha ao excluir avaliação',
+        variant: 'destructive'
+      });
+    }
+  };
+
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -318,7 +344,7 @@ export default function VisitExecutionPage() {
         },
         body: JSON.stringify({
           ...orderFormData,
-          client_id: visit?.client_id || '',
+          client_id: visit?.client.id || '',
           visit_id: visitId
         }),
       });
@@ -585,7 +611,7 @@ export default function VisitExecutionPage() {
                             <Label htmlFor="client">Cliente *</Label>
                             <Select
                               value={orderFormData.client_id}
-                              onValueChange={(value) => setOrderFormData({ ...orderFormData, client_id: value, visit_id: visitId })}
+                              onValueChange={(value) => setOrderFormData({ ...orderFormData, client_id: value })}
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Selecione o cliente" />
@@ -743,6 +769,9 @@ export default function VisitExecutionPage() {
                 </CardContent>
               </Card>
             </TabsContent>
+
+            {/* Avaliações de Campo */}
+            <TabsContent value="evaluations">
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
