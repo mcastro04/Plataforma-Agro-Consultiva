@@ -257,7 +257,7 @@ export default function ProductsPage() {
           </Badge>
         ),
         filterFn: (row, id, value) => {
-          return value === '' || row.getValue(id) === value;
+          return value === 'ALL' || row.getValue(id) === value;
         },
       },
       {
@@ -486,7 +486,7 @@ export default function ProductsPage() {
             <Select
               value={typeFilter}
               onValueChange={(value) => {
-                if (value === '') {
+                if (value === 'ALL') {
                   setColumnFilters((prev) => prev.filter((f) => f.id !== 'type'));
                 } else {
                   setColumnFilters((prev) => {
@@ -500,7 +500,7 @@ export default function ProductsPage() {
                 <SelectValue placeholder="Todos os tipos" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos os tipos</SelectItem>
+                <SelectItem value="ALL">Todos os tipos</SelectItem>
                 {PRODUCT_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {type}
