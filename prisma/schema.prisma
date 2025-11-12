@@ -71,7 +71,7 @@ model Plot {
 // Products - Catálogo de produtos
 model Product {
   id                String   @id @default(cuid())
-  name              String
+  name              String   @unique
   type              String   // 'INSETICIDA', 'FUNGICIDA', 'HERBICIDA', 'FERTILIZANTE', 'SEMENTE'
   active_ingredient String?
   created_by        String?
@@ -82,6 +82,7 @@ model Product {
   orderItems OrderItem[]
 
   @@map("products")
+  @@index([type])
 }
 
 // Visits - Visitas técnicas agendadas
