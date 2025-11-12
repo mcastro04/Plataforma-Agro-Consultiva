@@ -1,0 +1,943 @@
+From 426b3798ac69f7ca4c8b229d8c8899b4b93c4661 Mon Sep 17 00:00:00 2001
+From: Marconi Castro <marconi.castro.mc@gmail.com>
+Date: Wed, 12 Nov 2025 14:38:19 -0300
+Subject: [PATCH] feat(api): add Zod validation + pagination helpers;
+ fix(schema): make Product.name unique and index by type; add consistent API
+ error helpers
+
+---
+ prisma/schema.prisma              |   3 +-
+ src/app/api/clients/route.ts      |  79 +++++++------------
+ src/app/api/plots/route.ts        |  87 ++++++++------------
+ src/app/api/products/route.ts     |  60 ++++++--------
+ src/app/api/properties/route.ts   |  79 ++++++-------------
+ src/app/api/sales-orders/route.ts | 127 ++++++++----------------------
+ src/app/api/visits/route.ts       |  99 ++++++++---------------
+ src/lib/api.ts                    |  31 ++++++++
+ src/lib/validation.ts             |  67 ++++++++++++++++
+ 9 files changed, 269 insertions(+), 363 deletions(-)
+ create mode 100644 src/lib/api.ts
+ create mode 100644 src/lib/validation.ts
+
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index f94b4a8..b9dbaf1 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -71,7 +71,7 @@ model Plot {
+ // Products - Catálogo de produtos
+ model Product {
+   id                String   @id @default(cuid())
+-  name              String
++  name              String   @unique
+   type              String   // 'INSETICIDA', 'FUNGICIDA', 'HERBICIDA', 'FERTILIZANTE', 'SEMENTE'
+   active_ingredient String?
+   created_by        String?
+@@ -82,6 +82,7 @@ model Product {
+   orderItems OrderItem[]
+ 
+   @@map("products")
++  @@index([type])
+ }
+ 
+ // Visits - Visitas técnicas agendadas
+diff --git a/src/app/api/clients/route.ts b/src/app/api/clients/route.ts
+index 58b458f..920bf07 100644
+--- a/src/app/api/clients/route.ts
++++ b/src/app/api/clients/route.ts
+@@ -1,87 +1,62 @@
+-import { NextRequest, NextResponse } from 'next/server';
++import { NextRequest } from 'next/server';
+ import { db } from '@/lib/db';
++import { getPagination, jsonError, jsonOk, parseJson } from '@/lib/api';
++import { clientCreateSchema } from '@/lib/validation';
+ 
+ export async function GET(request: NextRequest) {
+   try {
+     const { searchParams } = new URL(request.url);
+     const search = searchParams.get('search');
+ 
++    const { skip, take } = getPagination(searchParams);
++    const usePagination = searchParams.has('page') || searchParams.has('pageSize');
++
+     const clients = await db.client.findMany({
+       where: {
+         ...(search && {
+           OR: [
+             { name: { contains: search } },
+             { email: { contains: search } },
+-            { phone: { contains: search } }
+-          ]
+-        })
+-      },
+-      orderBy: {
+-        created_at: 'desc'
++            { phone: { contains: search } },
++          ],
++        }),
+       },
++      orderBy: { created_at: 'desc' },
++      ...(usePagination ? { skip, take } : {}),
+       include: {
+-        properties: {
+-          select: {
+-            id: true,
+-            name: true,
+-            city: true
+-          }
+-        },
+-        _count: {
+-          select: {
+-            visits: true,
+-            salesOrders: true
+-          }
+-        }
+-      }
++        properties: { select: { id: true, name: true, city: true } },
++        _count: { select: { visits: true, salesOrders: true } },
++      },
+     });
+ 
+-    return NextResponse.json(clients);
++    return jsonOk(clients);
+   } catch (error) {
+     console.error('Error fetching clients:', error);
+-    return NextResponse.json(
+-      { error: 'Failed to fetch clients' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to fetch clients', 500);
+   }
+ }
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    const body = await request.json();
+-    const { name, cpf_cnpj, phone, email } = body;
+-
+-    if (!name) {
+-      return NextResponse.json(
+-        { error: 'Name is required' },
+-        { status: 400 }
+-      );
++    const body = await parseJson(request);
++    const parsed = clientCreateSchema.safeParse(body);
++    if (!parsed.success) {
++      return jsonError('Validation failed', 400, parsed.error.flatten());
+     }
+ 
+     const client = await db.client.create({
+       data: {
+-        name,
+-        cpf_cnpj,
+-        phone,
+-        email,
+-        created_by: 'marconi' // Temporário, até implementarmos autenticação
+-      }
++        ...parsed.data,
++        created_by: 'marconi',
++      },
+     });
+ 
+-    return NextResponse.json(client, { status: 201 });
++    return jsonOk(client, 201);
+   } catch (error: any) {
+     console.error('Error creating client:', error);
+-    
+     if (error.code === 'P2002') {
+-      return NextResponse.json(
+-        { error: 'CPF/CNPJ already exists' },
+-        { status: 409 }
+-      );
++      return jsonError('CPF/CNPJ already exists', 409);
+     }
+-
+-    return NextResponse.json(
+-      { error: 'Failed to create client' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to create client', 500);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/app/api/plots/route.ts b/src/app/api/plots/route.ts
+index cf261ee..19a33e4 100644
+--- a/src/app/api/plots/route.ts
++++ b/src/app/api/plots/route.ts
+@@ -1,97 +1,72 @@
+-import { NextRequest, NextResponse } from 'next/server';
++import { NextRequest } from 'next/server';
+ import { db } from '@/lib/db';
++import { getPagination, jsonError, jsonOk, parseJson } from '@/lib/api';
++import { plotCreateSchema } from '@/lib/validation';
+ 
+ export async function GET(request: NextRequest) {
+   try {
+     const { searchParams } = new URL(request.url);
+     const propertyId = searchParams.get('property_id');
+ 
++    const { skip, take } = getPagination(searchParams);
++    const usePagination = searchParams.has('page') || searchParams.has('pageSize');
++
+     const plots = await db.plot.findMany({
+       where: propertyId ? { property_id: propertyId } : undefined,
+-      orderBy: {
+-        created_at: 'desc'
+-      },
++      orderBy: { created_at: 'desc' },
++      ...(usePagination ? { skip, take } : {}),
+       include: {
+         property: {
+           select: {
+             id: true,
+             name: true,
+-            client: {
+-              select: {
+-                id: true,
+-                name: true
+-              }
+-            }
+-          }
++            client: { select: { id: true, name: true } },
++          },
+         },
+-        _count: {
+-          select: {
+-            plotEvaluations: true
+-          }
+-        }
+-      }
++        _count: { select: { plotEvaluations: true } },
++      },
+     });
+ 
+-    return NextResponse.json(plots);
++    return jsonOk(plots);
+   } catch (error) {
+     console.error('Error fetching plots:', error);
+-    return NextResponse.json(
+-      { error: 'Failed to fetch plots' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to fetch plots', 500);
+   }
+ }
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    const body = await request.json();
+-    const { property_id, name, crop, area_hectares } = body;
+-
+-    if (!property_id || !name) {
+-      return NextResponse.json(
+-        { error: 'Property ID and name are required' },
+-        { status: 400 }
+-      );
++    const body = await parseJson(request);
++    const parsed = plotCreateSchema.safeParse(body);
++    if (!parsed.success) {
++      return jsonError('Validation failed', 400, parsed.error.flatten());
+     }
+ 
+     const plot = await db.plot.create({
+       data: {
+-        property_id,
+-        name,
+-        crop,
+-        area_hectares: area_hectares ? parseFloat(area_hectares) : null,
+-        created_by: 'marconi'
++        property_id: parsed.data.property_id,
++        name: parsed.data.name,
++        crop: parsed.data.crop,
++        area_hectares: parsed.data.area_hectares ?? null,
++        created_by: 'marconi',
+       },
+       include: {
+         property: {
+           select: {
+             id: true,
+             name: true,
+-            client: {
+-              select: {
+-                id: true,
+-                name: true
+-              }
+-            }
+-          }
+-        }
+-      }
++            client: { select: { id: true, name: true } },
++          },
++        },
++      },
+     });
+ 
+-    return NextResponse.json(plot, { status: 201 });
++    return jsonOk(plot, 201);
+   } catch (error: any) {
+     console.error('Error creating plot:', error);
+-    
+     if (error.code === 'P2003') {
+-      return NextResponse.json(
+-        { error: 'Property not found' },
+-        { status: 404 }
+-      );
++      return jsonError('Property not found', 404);
+     }
+-
+-    return NextResponse.json(
+-      { error: 'Failed to create plot' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to create plot', 500);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/app/api/products/route.ts b/src/app/api/products/route.ts
+index 4837105..2d4f7a1 100644
+--- a/src/app/api/products/route.ts
++++ b/src/app/api/products/route.ts
+@@ -1,5 +1,7 @@
+-import { NextRequest, NextResponse } from 'next/server';
++import { NextRequest } from 'next/server';
+ import { db } from '@/lib/db';
++import { getPagination, jsonError, jsonOk, parseJson } from '@/lib/api';
++import { productCreateSchema } from '@/lib/validation';
+ 
+ export async function GET(request: NextRequest) {
+   try {
+@@ -7,66 +9,48 @@ export async function GET(request: NextRequest) {
+     const type = searchParams.get('type');
+     const search = searchParams.get('search');
+ 
++    const { skip, take } = getPagination(searchParams);
++    const usePagination = searchParams.has('page') || searchParams.has('pageSize');
++
+     const products = await db.product.findMany({
+       where: {
+         ...(type && { type }),
+         ...(search && {
+           OR: [
+             { name: { contains: search } },
+-            { active_ingredient: { contains: search } }
+-          ]
+-        })
++            { active_ingredient: { contains: search } },
++          ],
++        }),
+       },
+-      orderBy: {
+-        created_at: 'desc'
+-      }
++      orderBy: { created_at: 'desc' },
++      ...(usePagination ? { skip, take } : {}),
+     });
+ 
+-    return NextResponse.json(products);
++    return jsonOk(products);
+   } catch (error) {
+     console.error('Error fetching products:', error);
+-    return NextResponse.json(
+-      { error: 'Failed to fetch products' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to fetch products', 500);
+   }
+ }
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    const body = await request.json();
+-    const { name, type, active_ingredient } = body;
+-
+-    if (!name || !type) {
+-      return NextResponse.json(
+-        { error: 'Name and type are required' },
+-        { status: 400 }
+-      );
++    const body = await parseJson(request);
++    const parsed = productCreateSchema.safeParse(body);
++    if (!parsed.success) {
++      return jsonError('Validation failed', 400, parsed.error.flatten());
+     }
+ 
+     const product = await db.product.create({
+-      data: {
+-        name,
+-        type,
+-        active_ingredient,
+-        created_by: 'marconi'
+-      }
++      data: { ...parsed.data, created_by: 'marconi' },
+     });
+ 
+-    return NextResponse.json(product, { status: 201 });
++    return jsonOk(product, 201);
+   } catch (error: any) {
+     console.error('Error creating product:', error);
+-    
+     if (error.code === 'P2002') {
+-      return NextResponse.json(
+-        { error: 'Product with this name already exists' },
+-        { status: 409 }
+-      );
++      return jsonError('Product with this name already exists', 409);
+     }
+-
+-    return NextResponse.json(
+-      { error: 'Failed to create product' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to create product', 500);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/app/api/properties/route.ts b/src/app/api/properties/route.ts
+index 66b484d..be92cc1 100644
+--- a/src/app/api/properties/route.ts
++++ b/src/app/api/properties/route.ts
+@@ -1,85 +1,52 @@
+-import { NextRequest, NextResponse } from 'next/server';
++import { NextRequest } from 'next/server';
+ import { db } from '@/lib/db';
++import { getPagination, jsonError, jsonOk, parseJson } from '@/lib/api';
++import { propertyCreateSchema } from '@/lib/validation';
+ 
+ export async function GET(request: NextRequest) {
+   try {
+     const { searchParams } = new URL(request.url);
+     const clientId = searchParams.get('client_id');
+ 
++    const { skip, take } = getPagination(searchParams);
++    const usePagination = searchParams.has('page') || searchParams.has('pageSize');
++
+     const properties = await db.property.findMany({
+       where: clientId ? { client_id: clientId } : undefined,
+-      orderBy: {
+-        created_at: 'desc'
+-      },
++      orderBy: { created_at: 'desc' },
++      ...(usePagination ? { skip, take } : {}),
+       include: {
+-        client: {
+-          select: {
+-            id: true,
+-            name: true
+-          }
+-        },
+-        _count: {
+-          select: {
+-            plots: true,
+-            visits: true
+-          }
+-        }
+-      }
++        client: { select: { id: true, name: true } },
++        _count: { select: { plots: true, visits: true } },
++      },
+     });
+ 
+-    return NextResponse.json(properties);
++    return jsonOk(properties);
+   } catch (error) {
+     console.error('Error fetching properties:', error);
+-    return NextResponse.json(
+-      { error: 'Failed to fetch properties' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to fetch properties', 500);
+   }
+ }
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    const body = await request.json();
+-    const { client_id, name, city } = body;
+-
+-    if (!client_id || !name) {
+-      return NextResponse.json(
+-        { error: 'Client ID and name are required' },
+-        { status: 400 }
+-      );
++    const body = await parseJson(request);
++    const parsed = propertyCreateSchema.safeParse(body);
++    if (!parsed.success) {
++      return jsonError('Validation failed', 400, parsed.error.flatten());
+     }
+ 
+     const property = await db.property.create({
+-      data: {
+-        client_id,
+-        name,
+-        city,
+-        created_by: 'marconi'
+-      },
+-      include: {
+-        client: {
+-          select: {
+-            id: true,
+-            name: true
+-          }
+-        }
+-      }
++      data: { ...parsed.data, created_by: 'marconi' },
++      include: { client: { select: { id: true, name: true } } },
+     });
+ 
+-    return NextResponse.json(property, { status: 201 });
++    return jsonOk(property, 201);
+   } catch (error: any) {
+     console.error('Error creating property:', error);
+-    
+     if (error.code === 'P2003') {
+-      return NextResponse.json(
+-        { error: 'Client not found' },
+-        { status: 404 }
+-      );
++      return jsonError('Client not found', 404);
+     }
+-
+-    return NextResponse.json(
+-      { error: 'Failed to create property' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to create property', 500);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/app/api/sales-orders/route.ts b/src/app/api/sales-orders/route.ts
+index edb574e..1151e30 100644
+--- a/src/app/api/sales-orders/route.ts
++++ b/src/app/api/sales-orders/route.ts
+@@ -1,5 +1,7 @@
+-import { NextRequest, NextResponse } from 'next/server';
++import { NextRequest } from 'next/server';
+ import { db } from '@/lib/db';
++import { getPagination, jsonError, jsonOk, parseJson } from '@/lib/api';
++import { salesOrderCreateSchema } from '@/lib/validation';
+ 
+ export async function GET(request: NextRequest) {
+   try {
+@@ -7,131 +9,72 @@ export async function GET(request: NextRequest) {
+     const status = searchParams.get('status');
+     const clientId = searchParams.get('client_id');
+ 
++    const { skip, take } = getPagination(searchParams);
++    const usePagination = searchParams.has('page') || searchParams.has('pageSize');
++
+     const salesOrders = await db.salesOrder.findMany({
+       where: {
+         ...(status && { status }),
+-        ...(clientId && { client_id: clientId })
+-      },
+-      orderBy: {
+-        created_at: 'desc'
++        ...(clientId && { client_id: clientId }),
+       },
++      orderBy: { created_at: 'desc' },
++      ...(usePagination ? { skip, take } : {}),
+       include: {
+-        client: {
+-          select: {
+-            id: true,
+-            name: true
+-          }
+-        },
++        client: { select: { id: true, name: true } },
+         visit: {
+           select: {
+             id: true,
+             scheduled_date: true,
+-            property: {
+-              select: {
+-                id: true,
+-                name: true
+-              }
+-            }
+-          }
++            property: { select: { id: true, name: true } },
++          },
+         },
+         orderItems: {
+-          include: {
+-            product: {
+-              select: {
+-                id: true,
+-                name: true,
+-                type: true
+-              }
+-            }
+-          }
+-        }
+-      }
++          include: { product: { select: { id: true, name: true, type: true } } },
++        },
++      },
+     });
+ 
+-    // Calculate total values
+-    const salesOrdersWithTotals = salesOrders.map(order => ({
++    const salesOrdersWithTotals = salesOrders.map((order) => ({
+       ...order,
+-      total: order.orderItems.reduce((sum, item) => sum + (item.quantity * item.unit_price), 0),
+-      itemsCount: order.orderItems.length
++      total: order.orderItems.reduce((sum, item) => sum + item.quantity * item.unit_price, 0),
++      itemsCount: order.orderItems.length,
+     }));
+ 
+-    return NextResponse.json(salesOrdersWithTotals);
++    return jsonOk(salesOrdersWithTotals);
+   } catch (error) {
+     console.error('Error fetching sales orders:', error);
+-    return NextResponse.json(
+-      { error: 'Failed to fetch sales orders' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to fetch sales orders', 500);
+   }
+ }
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    const body = await request.json();
+-    const { client_id, visit_id, status, orderItems } = body;
+-
+-    if (!client_id || !orderItems || orderItems.length === 0) {
+-      return NextResponse.json(
+-        { error: 'Client ID and at least one order item are required' },
+-        { status: 400 }
+-      );
+-    }
+-
+-    // Validate order items
+-    for (const item of orderItems) {
+-      if (!item.product_id || !item.quantity || !item.unit_price) {
+-        return NextResponse.json(
+-          { error: 'All order items must have product_id, quantity and unit_price' },
+-          { status: 400 }
+-        );
+-      }
++    const body = await parseJson(request);
++    const parsed = salesOrderCreateSchema.safeParse(body);
++    if (!parsed.success) {
++      return jsonError('Validation failed', 400, parsed.error.flatten());
+     }
+ 
+     const salesOrder = await db.salesOrder.create({
+       data: {
+-        client_id,
+-        visit_id,
+-        status: status || 'COTAÇÃO',
++        client_id: parsed.data.client_id,
++        visit_id: parsed.data.visit_id,
++        status: parsed.data.status || 'COTAÇÃO',
+         created_by: 'marconi',
+-        orderItems: {
+-          create: orderItems
+-        }
++        orderItems: { create: parsed.data.orderItems },
+       },
+       include: {
+-        client: {
+-          select: {
+-            id: true,
+-            name: true
+-          }
+-        },
+-        orderItems: {
+-          include: {
+-            product: {
+-              select: {
+-                id: true,
+-                name: true,
+-                type: true
+-              }
+-            }
+-          }
+-        }
+-      }
++        client: { select: { id: true, name: true } },
++        orderItems: { include: { product: { select: { id: true, name: true, type: true } } } },
++      },
+     });
+ 
+-    return NextResponse.json(salesOrder, { status: 201 });
++    return jsonOk(salesOrder, 201);
+   } catch (error: any) {
+     console.error('Error creating sales order:', error);
+-    
+     if (error.code === 'P2003') {
+-      return NextResponse.json(
+-        { error: 'Client or visit not found' },
+-        { status: 404 }
+-      );
++      return jsonError('Client or visit not found', 404);
+     }
+-
+-    return NextResponse.json(
+-      { error: 'Failed to create sales order' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to create sales order', 500);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/app/api/visits/route.ts b/src/app/api/visits/route.ts
+index 9d05a98..4828bb1 100644
+--- a/src/app/api/visits/route.ts
++++ b/src/app/api/visits/route.ts
+@@ -1,5 +1,7 @@
+-import { NextRequest, NextResponse } from 'next/server';
++import { NextRequest } from 'next/server';
+ import { db } from '@/lib/db';
++import { getPagination, jsonError, jsonOk, parseJson } from '@/lib/api';
++import { visitCreateSchema } from '@/lib/validation';
+ 
+ export async function GET(request: NextRequest) {
+   try {
+@@ -8,99 +10,60 @@ export async function GET(request: NextRequest) {
+     const propertyId = searchParams.get('property_id');
+     const status = searchParams.get('status');
+ 
++    const { skip, take } = getPagination(searchParams);
++    const usePagination = searchParams.has('page') || searchParams.has('pageSize');
++
+     const visits = await db.visit.findMany({
+       where: {
+         ...(clientId && { client_id: clientId }),
+         ...(propertyId && { property_id: propertyId }),
+-        ...(status && { status })
+-      },
+-      orderBy: {
+-        scheduled_date: 'desc'
++        ...(status && { status }),
+       },
++      orderBy: { scheduled_date: 'desc' },
++      ...(usePagination ? { skip, take } : {}),
+       include: {
+-        client: {
+-          select: {
+-            id: true,
+-            name: true
+-          }
+-        },
+-        property: {
+-          select: {
+-            id: true,
+-            name: true,
+-            city: true
+-          }
+-        },
+-        _count: {
+-          select: {
+-            plotEvaluations: true
+-          }
+-        }
+-      }
++        client: { select: { id: true, name: true } },
++        property: { select: { id: true, name: true, city: true } },
++        _count: { select: { plotEvaluations: true } },
++      },
+     });
+ 
+-    return NextResponse.json(visits);
++    return jsonOk(visits);
+   } catch (error) {
+     console.error('Error fetching visits:', error);
+-    return NextResponse.json(
+-      { error: 'Failed to fetch visits' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to fetch visits', 500);
+   }
+ }
+ 
+ export async function POST(request: NextRequest) {
+   try {
+-    const body = await request.json();
+-    const { client_id, property_id, scheduled_date, objective } = body;
+-
+-    if (!client_id || !property_id || !scheduled_date) {
+-      return NextResponse.json(
+-        { error: 'Client ID, Property ID and scheduled date are required' },
+-        { status: 400 }
+-      );
++    const body = await parseJson(request);
++    const parsed = visitCreateSchema.safeParse(body);
++    if (!parsed.success) {
++      return jsonError('Validation failed', 400, parsed.error.flatten());
+     }
+ 
+     const visit = await db.visit.create({
+       data: {
+-        client_id,
+-        property_id,
+-        scheduled_date: new Date(scheduled_date),
+-        objective,
++        client_id: parsed.data.client_id,
++        property_id: parsed.data.property_id,
++        scheduled_date: parsed.data.scheduled_date,
++        objective: parsed.data.objective,
+         status: 'AGENDADA',
+-        created_by: 'marconi'
++        created_by: 'marconi',
+       },
+       include: {
+-        client: {
+-          select: {
+-            id: true,
+-            name: true
+-          }
+-        },
+-        property: {
+-          select: {
+-            id: true,
+-            name: true,
+-            city: true
+-          }
+-        }
+-      }
++        client: { select: { id: true, name: true } },
++        property: { select: { id: true, name: true, city: true } },
++      },
+     });
+ 
+-    return NextResponse.json(visit, { status: 201 });
++    return jsonOk(visit, 201);
+   } catch (error: any) {
+     console.error('Error creating visit:', error);
+-    
+     if (error.code === 'P2003') {
+-      return NextResponse.json(
+-        { error: 'Client or Property not found' },
+-        { status: 404 }
+-      );
++      return jsonError('Client or Property not found', 404);
+     }
+-
+-    return NextResponse.json(
+-      { error: 'Failed to create visit' },
+-      { status: 500 }
+-    );
++    return jsonError('Failed to create visit', 500);
+   }
+-}
+\ No newline at end of file
++}
+diff --git a/src/lib/api.ts b/src/lib/api.ts
+new file mode 100644
+index 0000000..a542219
+--- /dev/null
++++ b/src/lib/api.ts
+@@ -0,0 +1,31 @@
++import { NextRequest, NextResponse } from 'next/server';
++
++export type ApiError = {
++  error: string;
++  details?: any;
++};
++
++export function jsonOk<T>(data: T, init?: number | ResponseInit) {
++  return NextResponse.json(data as any, init);
++}
++
++export function jsonError(error: string, status: number = 400, details?: any) {
++  const body: ApiError = { error, ...(details ? { details } : {}) };
++  return NextResponse.json(body, { status });
++}
++
++export async function parseJson<T>(request: NextRequest): Promise<T> {
++  try {
++    return await request.json();
++  } catch {
++    throw new Error('Invalid JSON body');
++  }
++}
++
++export function getPagination(searchParams: URLSearchParams) {
++  const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
++  const pageSize = Math.min(100, Math.max(1, Number(searchParams.get('pageSize') ?? '20') || 20));
++  const skip = (page - 1) * pageSize;
++  const take = pageSize;
++  return { page, pageSize, skip, take };
++}
+diff --git a/src/lib/validation.ts b/src/lib/validation.ts
+new file mode 100644
+index 0000000..07bf5a8
+--- /dev/null
++++ b/src/lib/validation.ts
+@@ -0,0 +1,67 @@
++import { z } from 'zod';
++
++export const clientCreateSchema = z.object({
++  name: z.string().min(1),
++  cpf_cnpj: z.string().min(1).optional().or(z.literal('').transform(() => undefined)),
++  phone: z.string().optional(),
++  email: z.string().email().optional(),
++});
++export const clientUpdateSchema = clientCreateSchema.partial().extend({ name: z.string().min(1) });
++
++export const propertyCreateSchema = z.object({
++  client_id: z.string().min(1),
++  name: z.string().min(1),
++  city: z.string().optional(),
++});
++export const propertyUpdateSchema = z.object({
++  name: z.string().min(1),
++  city: z.string().optional(),
++});
++
++export const plotCreateSchema = z.object({
++  property_id: z.string().min(1),
++  name: z.string().min(1),
++  crop: z.string().optional(),
++  area_hectares: z.union([z.number(), z.string()]).optional().transform((v) => (v === '' || v === undefined ? undefined : Number(v))).refine((v) => v === undefined || !Number.isNaN(v), { message: 'area_hectares must be a number' }),
++});
++export const plotUpdateSchema = z.object({
++  name: z.string().min(1),
++  crop: z.string().optional(),
++  area_hectares: z.union([z.number(), z.string()]).optional().transform((v) => (v === '' || v === undefined ? undefined : Number(v))).refine((v) => v === undefined || !Number.isNaN(v), { message: 'area_hectares must be a number' }),
++});
++
++export const productCreateSchema = z.object({
++  name: z.string().min(1),
++  type: z.string().min(1),
++  active_ingredient: z.string().optional(),
++});
++export const productUpdateSchema = productCreateSchema;
++
++export const visitCreateSchema = z.object({
++  client_id: z.string().min(1),
++  property_id: z.string().min(1),
++  scheduled_date: z.union([z.string(), z.date()]).transform((v) => new Date(v as any)).refine((d) => !Number.isNaN(d.getTime()), { message: 'scheduled_date must be a valid date' }),
++  objective: z.string().optional(),
++});
++export const visitUpdateSchema = z.object({
++  scheduled_date: z.union([z.string(), z.date()]).optional().transform((v) => (v ? new Date(v as any) : undefined)).refine((d) => d === undefined || !Number.isNaN((d as Date).getTime()), { message: 'scheduled_date must be a valid date' }),
++  objective: z.string().optional(),
++  discussion_summary: z.string().optional(),
++  status: z.string().optional(),
++});
++
++export const orderItemSchema = z.object({
++  product_id: z.string().min(1),
++  quantity: z.number().or(z.string()).transform((v) => Number(v)).refine((n) => !Number.isNaN(n), { message: 'quantity must be a number' }),
++  unit_price: z.number().or(z.string()).transform((v) => Number(v)).refine((n) => !Number.isNaN(n), { message: 'unit_price must be a number' }),
++});
++export const salesOrderCreateSchema = z.object({
++  client_id: z.string().min(1),
++  visit_id: z.string().optional(),
++  status: z.string().optional(),
++  orderItems: z.array(orderItemSchema).min(1),
++});
++export const salesOrderUpdateSchema = z.object({
++  status: z.string().optional(),
++  orderItems: z.array(orderItemSchema).optional(),
++});
+-- 
+2.39.5
+

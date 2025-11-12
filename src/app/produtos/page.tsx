@@ -310,7 +310,7 @@ export default function ProductsPage() {
                 <SelectValue placeholder="Todos os tipos" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos os tipos</SelectItem>
+                <SelectItem value="ALL">Todos os tipos</SelectItem>
                 {PRODUCT_TYPES.map((type) => (
                   <SelectItem key={type} value={type}>
                     {type}
