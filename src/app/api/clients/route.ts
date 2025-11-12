@@ -30,9 +30,9 @@ export async function GET(request: NextRequest) {
     });
 
     return jsonOk(clients);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching clients:', error);
-    return jsonError('Failed to fetch clients', 500);
+    return jsonError('Failed to fetch clients', 500, { code: error?.code, message: error?.message });
   }
 }
 
