@@ -37,5 +37,11 @@ ON CONFLICT DO NOTHING;
 
 -- Item do pedido
 INSERT INTO order_items (id, order_id, product_id, quantity, unit_price)
-VALUES ('oi_demo_1', 'so_demo_1', (SELECT id FROM prod), 1, 100)
+VALUES (
+  'oi_demo_1',
+  'so_demo_1',
+  (SELECT id FROM products WHERE name = 'Produto Demo 1' LIMIT 1),
+  1,
+  100
+)
 ON CONFLICT DO NOTHING;
