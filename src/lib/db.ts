@@ -1,12 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
-}
-
-export const db =
-  globalForPrisma.prisma ??
-  function sanitizeUrl(raw?: string) {
+function sanitizeUrl(raw?: string) {
   if (!raw) return raw
   let url = raw
     .trim()
@@ -23,11 +17,17 @@ export const db =
   return url
 }
 
-new PrismaClient({
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
+}
+
+const cleanedUrl = sanitizeUrl(process.env.DATABASE_URL)
+
+export const db =
+  globalForPrisma.prisma ??
+  new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query'] : [],
-    datasources: process.env.DATABASE_URL
-      ? { db: { url: sanitizeUrl(process.env.DATABASE_URL) as string } }
-      : undefined,
+    datasources: cleanedUrl ? { db: { url: cleanedUrl } } : undefined,
   })
 
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
