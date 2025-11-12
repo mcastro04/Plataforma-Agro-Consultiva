@@ -274,7 +274,7 @@ export default function SalesPage() {
           </Badge>
         ),
         filterFn: (row, id, value) => {
-          return value === '' || row.getValue(id) === value;
+          return value === 'ALL' || row.getValue(id) === value;
         },
       },
       {
@@ -586,7 +586,7 @@ export default function SalesPage() {
             <Select
               value={statusFilter}
               onValueChange={(value) => {
-                if (value === '') {
+                if (value === 'ALL') {
                   setColumnFilters((prev) => prev.filter((f) => f.id !== 'status'));
                 } else {
                   setColumnFilters((prev) => {
@@ -600,7 +600,7 @@ export default function SalesPage() {
                 <SelectValue placeholder="Todos os status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Todos os status</SelectItem>
+                <SelectItem value="ALL">Todos os status</SelectItem>
                 {ORDER_STATUSES.map((status) => (
                   <SelectItem key={status} value={status}>
                     {status}
