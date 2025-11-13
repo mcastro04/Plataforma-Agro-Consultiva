@@ -329,14 +329,14 @@ export default function VendasPage() {
                   <label className="text-sm font-medium">Visita (opcional)</label>
                   <Select
                     value={formData.visit_id}
-                    onValueChange={(value) => setFormData({ ...formData, visit_id: value === 'NONE' ? '' : value })}
+                    onValueChange={(value) => setFormData({ ...formData, visit_id: value })}
                     disabled={!formData.client_id}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Selecione a visita" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="NONE">Sem visita associada</SelectItem>
+                      <SelectItem value="">Sem visita associada</SelectItem>
                       {visits.map((visit) => (
                         <SelectItem key={visit.id} value={visit.id}>
                           {new Date(visit.scheduled_date).toLocaleDateString('pt-BR')} - {visit.property_name}
@@ -503,7 +503,7 @@ export default function VendasPage() {
                 <SelectValue placeholder="Todos os status" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">Todos os status</SelectItem>
+                <SelectItem value="">Todos os status</SelectItem>
                 {ORDER_STATUSES.map((status) => (
                   <SelectItem key={status} value={status}>
                     {status}

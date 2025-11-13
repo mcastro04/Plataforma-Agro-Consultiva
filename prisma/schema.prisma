@@ -9,9 +9,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // Clients - Produtores rurais
@@ -72,7 +71,7 @@ model Plot {
 // Products - Catálogo de produtos
 model Product {
   id                String   @id @default(cuid())
-  name              String   @unique
+  name              String
   type              String   // 'INSETICIDA', 'FUNGICIDA', 'HERBICIDA', 'FERTILIZANTE', 'SEMENTE'
   active_ingredient String?
   created_by        String?
@@ -83,7 +82,6 @@ model Product {
   orderItems OrderItem[]
 
   @@map("products")
-  @@index([type])
 }
 
 // Visits - Visitas técnicas agendadas
